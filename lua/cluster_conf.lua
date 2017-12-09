@@ -13,6 +13,7 @@ local function update_to_cache(cluster)
     if success == true then
         return true
     else
+        --    local attr_should_be_filter = function(key)
         util.log("cache online_service_group err: ", err)
         return false
     end

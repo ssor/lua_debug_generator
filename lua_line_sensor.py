@@ -10,6 +10,8 @@ line_type_func_invoke = "func_invoke"
 line_type_inserted = "inserted"
 line_type_edited = "edited"
 line_type_M = "_M"
+line_type_commented = "commented"
+line_type_local_function = "local_function"
 
 
 def require_detector(line):
@@ -53,6 +55,15 @@ def func_invoke_detector(line):
         return True
 
 
+def local_func_detector(line):
+    pattern = re.compile("local[\s=\w]+function\(")
+    match = pattern.search(line)
+    if match is None:
+        return False
+    else:
+        return True
+
+
 def module_return_detector(line):
     if line.find("return _M") >= 0:
         return True
@@ -60,12 +71,22 @@ def module_return_detector(line):
         return False
 
 
+def module_commented_detector(line):
+    remove_space = line.replace(" ", "")
+    if len(remove_space) > 0 and remove_space.startswith("--") is True:
+        return True
+    else:
+        return False
+
+
 line_type_detector = {
-    line_type_require: require_detector,
     line_type_empty_line: empty_line_detector,
-    line_type_func_declare: func_declare_detector,
+    line_type_commented: module_commented_detector,
+    line_type_require: require_detector,
     line_type_M: module_return_detector,
     line_type_return: return_detector,
+    line_type_local_function: local_func_detector,
+    line_type_func_declare: func_declare_detector,
     line_type_func_invoke: func_invoke_detector,
 }
 
@@ -103,50 +124,43 @@ def generate_debug_info_func_declare(line_info, ops=None):
         para_names = paras.split(",")
         paras_of_debug_info = ""
         for name in para_names:
+            if name == "self":
+                continue
             if len(paras_of_debug_info) <= 0:
                 paras_of_debug_info = "%s = %s" % (name, name)
             else:
                 paras_of_debug_info = "%s, %s = %s" % (paras_of_debug_info, name, name)
         new_line = {"line_type": line_type_inserted,
-                    "content": '    local debug_info = {desc = "%s", paras = {%s}, details = {}}' % (
-                        func_name, paras_of_debug_info)}
+                    "content": '    logstack:add({line = "%s", func_name = "%s", paras = {%s}})' % (
+                        ops["line_number"], func_name, paras_of_debug_info)}
     else:
         new_line = {"line_type": line_type_inserted,
-                    "content": '    local debug_info = {desc = "%s", details = {}}' % func_name}
+                    "content": '    logstack:add({line_number = "%s", func_name = "%s"})' % (
+                        ops["line_number"], func_name)}
     return [line_info, new_line]
 
 
 def generate_debug_info_return(line_info, ops=None):
-    count_of_returned_values = len(line_info["content"].replace("return", "").split(","))
-    if count_of_returned_values >= 3:
-        return [line_info]
-    elif count_of_returned_values == 2:
-        new_line = {"line_type": line_type_edited, "content": "%s, debug_info" % line_info["content"]}
-        return [new_line]
-    elif count_of_returned_values == 1:
-        new_line = {"line_type": line_type_edited, "content": "%s, nil, debug_info" % line_info["content"]}
-        return [new_line]
-    else:
-        new_line = {"line_type": line_type_edited, "content": "nil, nil, debug_info"}
-        return [new_line]
+    return [line_info]
 
 
 def generate_debug_info_func_invoke(line_info, ops=None):
     content = line_info["content"]
     # print(content)
     local_vars = content[:content.find("=")].replace("local ", "").replace(" ", "").split(",")
-    assert len(local_vars) > 0 and len(local_vars) < 3, "not func invoke code: " + content
-    if len(local_vars) is 1:
-        paras = "%s, %s" % (local_vars[0], "_")
-    else:
-        paras = "%s, %s" % (local_vars[0], local_vars[1])
+    assert len(local_vars) > 0, "func invoke but no response code: " + content
 
-    paras = "%s, %s" % (paras, "detail")
+    paras = ""
+    for local_var in local_vars:
+        paras = "%s, %s = %s" % (paras, local_var, local_var)
+    if paras.startswith(","):
+        paras = paras[1:]
 
-    edited_line = {"line_type": line_type_inserted,
-                   "content": content[:content.find("local ") + 6] + paras + content[content.find("="):]}
-    new_line = {"line_type": line_type_inserted, "content": "    table.insert(debug_info.details, detail)"}
-    return [edited_line, new_line]
+    func_name = content[content.find("=") + 1: content.find("(")]
+    new_line = {"line_type": line_type_inserted,
+                "content": '    logstack:add({line = "%s", func_name = "--> %s", values = {%s}})' % (
+                ops["line_number"], func_name, paras)}
+    return [line_info, new_line]
 
 
 def generate_debug_info_require(line_info, ops=None):
@@ -160,7 +174,7 @@ def generate_debug_info_require(line_info, ops=None):
             for debug_file_name in ops["require_debug_files"]:
                 if pkg_name == debug_file_name:
                     new_content = content[:mathch.start()] + '("%s_debug")' % (".".join(require_pkg_names))
-                    new_line = {"line_type": line_type_edited, "content": new_content}
+                    new_line = {"line_type": line_type_require, "content": new_content}
                     return [new_line]
             return [line_info]
         else:
@@ -188,12 +202,18 @@ def save_to_file(lines, debug_file_full_path):
             f.write(line_info["content"] + "\n")
 
 
-def generate_debug_info_of_lines(info_of_lines, ops):
+def generate_debug_info_of_lines(info_of_lines, debug_file_path, ops):
+    line_count = 3
     new_lines = []
+    logstack_require_line = {"line_type": line_type_inserted,
+                             "content": 'local logstack = require("list.api.log_stack")'}
+    new_lines.extend([logstack_require_line])
     for index, line_info in enumerate(info_of_lines):
+        ops["line_number"] = "%s : %s" % (debug_file_path, line_count)
         debug_info = generate_debug_info(line_info, ops)
         if debug_info is not None:
             new_lines.extend(debug_info)
+            line_count = line_count + len(debug_info)
     return new_lines
 
 
@@ -205,7 +225,7 @@ def name_debug_file(src_file_path):
 
 def generate_debug_file(lines, debug_file_path, ops):
     info_of_lines = detect_type_info_of_lines(lines[:])
-    new_lines = generate_debug_info_of_lines(info_of_lines, ops)
+    new_lines = generate_debug_info_of_lines(info_of_lines, debug_file_path, ops)
     save_to_file(new_lines, debug_file_path)
     return new_lines
 
