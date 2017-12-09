@@ -1,6 +1,6 @@
 local util = require("list.api.util")
 local config_by_file = require("list.api.config_by_file")
-
+local topic = require("list.api.skushow.topic")
 
 
 local _M = {}
