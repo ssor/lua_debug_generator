@@ -1,5 +1,5 @@
 
-#lua debug file generator
+# lua debug file generator
 
 ## Why do this
 As develop in lua and nginx, the info of how code works is great help for debug. 
@@ -24,3 +24,39 @@ we need add log-print code to functions at:
 
 ### 2. edit require file path
 As in fact we generate similar code files, we also need to edit the require parts
+
+
+## Use this project
+
+In folder lua, there is a log_stack.lua file which is used to cache logs in one nginx request handle, and can be seen as a reference for you.
+
+On above of "How to do", two things need to do, and we should let the project know which files should be handled, so there should be some configs.
+
+The configs is very simple, like example_pry.py, we need first list files to insert log code:
+
+
+```
+    debug_files = [
+        "C:/lua/a1.lua",
+        "C:/lua/a2.lua",
+        "C:/lua/a3.lua",
+    ]
+```
+
+
+Then list the require of lua which module should use debug version(we generate new files, and do Not change any src code)
+
+
+```
+    ops = {"require_debug_files": ["a1",
+                                   "a2",
+                                   "a3",
+                                   ]}
+```
+
+At last do this job
+
+```
+	lua_line_sensor.handle_files(debug_files, ops)
+```
+

@@ -244,4 +244,4 @@ if __name__ == '__main__':
     local_full_file_path = "./lua/cluster_conf.lua"
     # local_full_file_path = "./lua/config_by_file.lua"
     ops = {"require_debug_files": ["sku", "config_by_file", "topic"]}
-    new_lines = handle_file(local_full_file_path, ops)
+    handle_file(local_full_file_path, ops)
